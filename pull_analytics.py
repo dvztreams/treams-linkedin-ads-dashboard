@@ -29,7 +29,6 @@ COLD_OBJECTIVES = {"BRAND_AWARENESS", "ENGAGEMENT", "VIDEO_VIEW"}
 WARM_OBJECTIVES = {"WEBSITE_CONVERSION", "LEAD_GENERATION", "WEBSITE_VISIT"}
 
 # RAG thresholds from linkedin-ads-audit.skill
-# Cold Layer: higher is better for most metrics; CPM lower is better
 COLD_THRESHOLDS = {
     "engagement_rate": {"good": 0.15, "avg": 0.10, "higher_is_better": True},
     "social_engagement_rate": {"good": 0.005, "avg": 0.003, "higher_is_better": True},
@@ -83,11 +82,6 @@ def safe_div(a, b):
 
 
 def fetch_analytics(token: str, campaign_ids: list[int], pivot: str = "CAMPAIGN") -> dict[int, dict]:
-    """Pull aggregated analytics for the lookback window.
-
-    pivot=CAMPAIGN  → one row per campaign, keyed by campaign id
-    pivot=CREATIVE  → one row per creative, keyed by creative id
-    """
     if not campaign_ids:
         return {}
 
@@ -102,29 +96,16 @@ def fetch_analytics(token: str, campaign_ids: list[int], pivot: str = "CAMPAIGN"
         f"urn%3Ali%3AsponsoredCampaign%3A{cid}" for cid in campaign_ids
     )
     fields = ",".join([
-        "pivotValues",
-        "impressions",
-        "clicks",
-        "costInLocalCurrency",
-        "likes",
-        "comments",
-        "shares",
-        "follows",
-        "videoViews",
-        "videoCompletions",
-        "oneClickLeads",
-        "landingPageClicks",
-        "externalWebsiteConversions",
+        "pivotValues", "impressions", "clicks", "costInLocalCurrency",
+        "likes", "comments", "shares", "follows",
+        "videoViews", "videoCompletions",
+        "oneClickLeads", "landingPageClicks", "externalWebsiteConversions",
         "approximateUniqueImpressions",
     ])
 
     query = (
-        f"q=analytics"
-        f"&pivot={pivot}"
-        f"&timeGranularity=ALL"
-        f"&dateRange={date_range}"
-        f"&campaigns=List({campaign_urns})"
-        f"&fields={fields}"
+        f"q=analytics&pivot={pivot}&timeGranularity=ALL"
+        f"&dateRange={date_range}&campaigns=List({campaign_urns})&fields={fields}"
     )
 
     url = f"{BASE_URL}/adAnalytics?{query}"
@@ -149,8 +130,6 @@ def fetch_analytics(token: str, campaign_ids: list[int], pivot: str = "CAMPAIGN"
 
 
 def fetch_analytics_daily(token: str, campaign_ids: list[int], pivot: str = "CAMPAIGN") -> list[dict]:
-    """Pull DAILY analytics over DAILY_LOOKBACK_DAYS. Returns list of rows,
-    each with date + pivot_id + raw metric fields."""
     if not campaign_ids:
         return []
 
@@ -165,30 +144,16 @@ def fetch_analytics_daily(token: str, campaign_ids: list[int], pivot: str = "CAM
         f"urn%3Ali%3AsponsoredCampaign%3A{cid}" for cid in campaign_ids
     )
     fields = ",".join([
-        "dateRange",
-        "pivotValues",
-        "impressions",
-        "clicks",
-        "costInLocalCurrency",
-        "likes",
-        "comments",
-        "shares",
-        "follows",
-        "videoViews",
-        "videoCompletions",
-        "oneClickLeads",
-        "landingPageClicks",
-        "externalWebsiteConversions",
+        "dateRange", "pivotValues", "impressions", "clicks", "costInLocalCurrency",
+        "likes", "comments", "shares", "follows",
+        "videoViews", "videoCompletions",
+        "oneClickLeads", "landingPageClicks", "externalWebsiteConversions",
         "approximateUniqueImpressions",
     ])
 
     query = (
-        f"q=analytics"
-        f"&pivot={pivot}"
-        f"&timeGranularity=DAILY"
-        f"&dateRange={date_range}"
-        f"&campaigns=List({campaign_urns})"
-        f"&fields={fields}"
+        f"q=analytics&pivot={pivot}&timeGranularity=DAILY"
+        f"&dateRange={date_range}&campaigns=List({campaign_urns})&fields={fields}"
     )
 
     url = f"{BASE_URL}/adAnalytics?{query}"
@@ -218,7 +183,6 @@ def fetch_analytics_daily(token: str, campaign_ids: list[int], pivot: str = "CAM
 
 
 def fetch_company_reach(token: str, campaign_ids: list[int]) -> list[dict]:
-    """Pull per-company reach over the lookback window via MEMBER_COMPANY pivot."""
     if not campaign_ids:
         return []
 
@@ -232,24 +196,14 @@ def fetch_company_reach(token: str, campaign_ids: list[int]) -> list[dict]:
         f"urn%3Ali%3AsponsoredCampaign%3A{cid}" for cid in campaign_ids
     )
     fields = ",".join([
-        "pivotValues",
-        "impressions",
-        "clicks",
-        "costInLocalCurrency",
-        "likes",
-        "comments",
-        "shares",
-        "follows",
+        "pivotValues", "impressions", "clicks", "costInLocalCurrency",
+        "likes", "comments", "shares", "follows",
         "approximateUniqueImpressions",
     ])
 
     query = (
-        f"q=analytics"
-        f"&pivot=MEMBER_COMPANY"
-        f"&timeGranularity=ALL"
-        f"&dateRange={date_range}"
-        f"&campaigns=List({campaign_urns})"
-        f"&fields={fields}"
+        f"q=analytics&pivot=MEMBER_COMPANY&timeGranularity=ALL"
+        f"&dateRange={date_range}&campaigns=List({campaign_urns})&fields={fields}"
     )
     url = f"{BASE_URL}/adAnalytics?{query}"
     resp = requests.get(url, headers=headers(token), timeout=120)
@@ -269,7 +223,6 @@ def fetch_company_reach(token: str, campaign_ids: list[int]) -> list[dict]:
 
 
 def fetch_creatives(token: str, account_urn: str, campaign_ids: list[int]) -> dict[int, dict]:
-    """Fetch creative metadata for the given campaigns. Keyed by creative id."""
     if not campaign_ids:
         return {}
     account_id = account_urn.split(":")[-1]
@@ -383,7 +336,6 @@ def print_layer(layer: str, rows: list[dict]) -> None:
             if m["leads"]:
                 print(f"    {cpl_rag} CPL:             {fmt_money(m['cpl'])}     (target ≤€50, {m['leads']} leads)")
 
-        # Ad-level breakdown
         ads = r.get("ads", [])
         ads_with_spend = [a for a in ads if a["metrics"]["impressions"] > 0]
         if ads_with_spend:
@@ -429,7 +381,8 @@ def write_csv(rows: list[dict], path: str) -> None:
 
 def write_companies_csv(rows: list[dict], path: str) -> None:
     fieldnames = [
-        "company_urn", "impressions", "clicks", "social_actions",
+        "company_urn", "company_id", "linkedin_url",
+        "impressions", "clicks", "social_actions",
         "spend", "unique_members", "frequency",
     ]
     with open(path, "w", newline="") as f:
@@ -443,8 +396,16 @@ def write_companies_csv(rows: list[dict], path: str) -> None:
             social_actions = likes + comments + shares + follows
             impressions = row.get("impressions", 0) or 0
             unique = row.get("approximateUniqueImpressions", 0) or 0
+            urn = row["company_urn"]
+            try:
+                company_id = urn.split(":")[-1]
+            except (AttributeError, IndexError):
+                company_id = ""
+            linkedin_url = f"https://www.linkedin.com/company/{company_id}/" if company_id else ""
             writer.writerow({
-                "company_urn": row["company_urn"],
+                "company_urn": urn,
+                "company_id": company_id,
+                "linkedin_url": linkedin_url,
                 "impressions": impressions,
                 "clicks": row.get("clicks", 0) or 0,
                 "social_actions": social_actions,
@@ -572,7 +533,6 @@ def main() -> None:
     for c in active:
         layer, source = parse_layer(c.get("name", ""), c.get("objectiveType", ""))
         stats = analytics.get(c["id"], {})
-        # Find creatives belonging to this campaign
         campaign_urn = f"urn:li:sponsoredCampaign:{c['id']}"
         ads = []
         for cr_id, cr in creatives_meta.items():
@@ -608,7 +568,6 @@ def main() -> None:
     write_ads_csv(rows, ads_csv_path)
     print(f"📄 Saved ad-level (L{LOOKBACK_DAYS}d snapshot):       {ads_csv_path}")
 
-    # Daily time-series for trend / decay detection in Looker
     print(f"\nPulling DAILY analytics (last {DAILY_LOOKBACK_DAYS} days)...")
     campaigns_by_id = {c["id"]: c for c in active}
     daily_campaigns = fetch_analytics_daily(token, campaign_ids, pivot="CAMPAIGN")
@@ -623,7 +582,6 @@ def main() -> None:
     write_daily_ads_csv(daily_ads, creatives_meta, campaigns_by_id, daily_ads_path)
     print(f"📄 Saved daily ads:       {daily_ads_path}")
 
-    # Company-level reach (Cold Layer account penetration)
     print(f"\nPulling company-level reach (last {LOOKBACK_DAYS} days)...")
     companies = fetch_company_reach(token, campaign_ids)
     total_impressions_with_company = sum((r.get("impressions") or 0) for r in companies)
@@ -644,7 +602,6 @@ def main() -> None:
     write_companies_csv(companies, companies_path)
     print(f"\n📄 Saved companies:       {companies_path}")
 
-    # Push everything to the Google Sheet (no-op if not configured)
     try:
         from sheet_writer import push_all
         push_all()
