@@ -24,11 +24,9 @@ load_dotenv()
 LOOKBACK_DAYS = 30
 DAILY_LOOKBACK_DAYS = 90
 
-# Layer detection — primary via naming convention Treams_[Cold|Warm]_...
 COLD_OBJECTIVES = {"BRAND_AWARENESS", "ENGAGEMENT", "VIDEO_VIEW"}
 WARM_OBJECTIVES = {"WEBSITE_CONVERSION", "LEAD_GENERATION", "WEBSITE_VISIT"}
 
-# RAG thresholds from linkedin-ads-audit.skill
 COLD_THRESHOLDS = {
     "engagement_rate": {"good": 0.15, "avg": 0.10, "higher_is_better": True},
     "social_engagement_rate": {"good": 0.005, "avg": 0.003, "higher_is_better": True},
@@ -45,7 +43,6 @@ WARM_THRESHOLDS = {
 
 
 def parse_layer(name: str, objective: str) -> tuple[str, str]:
-    """Return (layer, source). source = 'name' or 'heuristic' or 'unlabeled'."""
     parts = (name or "").split("_")
     if len(parts) >= 2 and parts[0].lower() == "treams":
         layer = parts[1].lower()
@@ -84,10 +81,8 @@ def safe_div(a, b):
 def fetch_analytics(token: str, campaign_ids: list[int], pivot: str = "CAMPAIGN") -> dict[int, dict]:
     if not campaign_ids:
         return {}
-
     end = date.today()
     start = end - timedelta(days=LOOKBACK_DAYS)
-
     date_range = (
         f"(start:(year:{start.year},month:{start.month},day:{start.day}),"
         f"end:(year:{end.year},month:{end.month},day:{end.day}))"
@@ -102,19 +97,16 @@ def fetch_analytics(token: str, campaign_ids: list[int], pivot: str = "CAMPAIGN"
         "oneClickLeads", "landingPageClicks", "externalWebsiteConversions",
         "approximateUniqueImpressions",
     ])
-
     query = (
         f"q=analytics&pivot={pivot}&timeGranularity=ALL"
         f"&dateRange={date_range}&campaigns=List({campaign_urns})&fields={fields}"
     )
-
     url = f"{BASE_URL}/adAnalytics?{query}"
     resp = requests.get(url, headers=headers(token), timeout=60)
     if not resp.ok:
         print(f"Analytics request failed: {resp.status_code}")
         print(resp.text)
         resp.raise_for_status()
-
     out: dict[int, dict] = {}
     for row in resp.json().get("elements", []):
         pivot_values = row.get("pivotValues", [])
@@ -132,10 +124,8 @@ def fetch_analytics(token: str, campaign_ids: list[int], pivot: str = "CAMPAIGN"
 def fetch_analytics_daily(token: str, campaign_ids: list[int], pivot: str = "CAMPAIGN") -> list[dict]:
     if not campaign_ids:
         return []
-
     end = date.today()
     start = end - timedelta(days=DAILY_LOOKBACK_DAYS)
-
     date_range = (
         f"(start:(year:{start.year},month:{start.month},day:{start.day}),"
         f"end:(year:{end.year},month:{end.month},day:{end.day}))"
@@ -150,19 +140,16 @@ def fetch_analytics_daily(token: str, campaign_ids: list[int], pivot: str = "CAM
         "oneClickLeads", "landingPageClicks", "externalWebsiteConversions",
         "approximateUniqueImpressions",
     ])
-
     query = (
         f"q=analytics&pivot={pivot}&timeGranularity=DAILY"
         f"&dateRange={date_range}&campaigns=List({campaign_urns})&fields={fields}"
     )
-
     url = f"{BASE_URL}/adAnalytics?{query}"
     resp = requests.get(url, headers=headers(token), timeout=120)
     if not resp.ok:
         print(f"Daily analytics request failed: {resp.status_code}")
         print(resp.text)
         resp.raise_for_status()
-
     out: list[dict] = []
     for row in resp.json().get("elements", []):
         pivot_values = row.get("pivotValues", [])
@@ -185,7 +172,6 @@ def fetch_analytics_daily(token: str, campaign_ids: list[int], pivot: str = "CAM
 def fetch_company_reach(token: str, campaign_ids: list[int]) -> list[dict]:
     if not campaign_ids:
         return []
-
     end = date.today()
     start = end - timedelta(days=LOOKBACK_DAYS)
     date_range = (
@@ -200,7 +186,6 @@ def fetch_company_reach(token: str, campaign_ids: list[int]) -> list[dict]:
         "likes", "comments", "shares", "follows",
         "approximateUniqueImpressions",
     ])
-
     query = (
         f"q=analytics&pivot=MEMBER_COMPANY&timeGranularity=ALL"
         f"&dateRange={date_range}&campaigns=List({campaign_urns})&fields={fields}"
@@ -211,7 +196,6 @@ def fetch_company_reach(token: str, campaign_ids: list[int]) -> list[dict]:
         print(f"Company-reach request failed: {resp.status_code}")
         print(resp.text)
         return []
-
     out: list[dict] = []
     for row in resp.json().get("elements", []):
         pivot_values = row.get("pivotValues", [])
@@ -379,11 +363,12 @@ def write_csv(rows: list[dict], path: str) -> None:
             })
 
 
-def write_companies_csv(rows: list[dict], path: str) -> None:
+def write_companies_csv(rows: list[dict], path: str, total_spend_l30: float = 0.0) -> None:
     fieldnames = [
         "company_urn", "company_id", "linkedin_url",
         "impressions", "clicks", "social_actions",
         "spend", "unique_members", "frequency",
+        "total_spend_l30",
     ]
     with open(path, "w", newline="") as f:
         writer = csv.DictWriter(f, fieldnames=fieldnames)
@@ -398,216 +383,4 @@ def write_companies_csv(rows: list[dict], path: str) -> None:
             unique = row.get("approximateUniqueImpressions", 0) or 0
             urn = row["company_urn"]
             try:
-                company_id = urn.split(":")[-1]
-            except (AttributeError, IndexError):
-                company_id = ""
-            linkedin_url = f"https://www.linkedin.com/company/{company_id}/" if company_id else ""
-            writer.writerow({
-                "company_urn": urn,
-                "company_id": company_id,
-                "linkedin_url": linkedin_url,
-                "impressions": impressions,
-                "clicks": row.get("clicks", 0) or 0,
-                "social_actions": social_actions,
-                "spend": float(row.get("costInLocalCurrency", 0) or 0),
-                "unique_members": unique,
-                "frequency": safe_div(impressions, unique),
-            })
-
-
-def write_daily_campaigns_csv(daily_rows: list[dict], campaigns_by_id: dict, path: str) -> None:
-    fieldnames = [
-        "date", "campaign_id", "campaign_name", "layer", "layer_source", "objective",
-        "spend", "impressions", "clicks", "social_actions", "video_views",
-        "leads", "landing_page_clicks", "unique_members", "frequency",
-        "engagement_rate", "social_engagement_rate", "ctr", "video_view_rate",
-        "lpv_rate", "cpm", "cpc", "cpl",
-    ]
-    with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in daily_rows:
-            c = campaigns_by_id.get(row["pivot_id"], {})
-            layer, source = parse_layer(c.get("name", ""), c.get("objectiveType", ""))
-            metrics = compute_metrics(row)
-            writer.writerow({
-                "date": row["date"],
-                "campaign_id": row["pivot_id"],
-                "campaign_name": c.get("name", ""),
-                "layer": layer,
-                "layer_source": source,
-                "objective": c.get("objectiveType", ""),
-                **metrics,
-            })
-
-
-def write_daily_ads_csv(
-    daily_rows: list[dict],
-    creatives_meta: dict,
-    campaigns_by_id: dict,
-    path: str,
-) -> None:
-    fieldnames = [
-        "date", "ad_id", "campaign_id", "campaign_name", "layer", "ad_type", "ad_status",
-        "spend", "impressions", "clicks", "social_actions", "video_views",
-        "leads", "landing_page_clicks", "unique_members", "frequency",
-        "engagement_rate", "social_engagement_rate", "ctr", "video_view_rate",
-        "lpv_rate", "cpm", "cpc", "cpl",
-    ]
-    with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        for row in daily_rows:
-            ad_id = row["pivot_id"]
-            cr = creatives_meta.get(ad_id, {})
-            campaign_urn = cr.get("campaign", "")
-            try:
-                cid = int(campaign_urn.split(":")[-1])
-            except (ValueError, AttributeError):
-                cid = None
-            c = campaigns_by_id.get(cid, {})
-            layer, _ = parse_layer(c.get("name", ""), c.get("objectiveType", ""))
-            metrics = compute_metrics(row)
-            writer.writerow({
-                "date": row["date"],
-                "ad_id": ad_id,
-                "campaign_id": cid,
-                "campaign_name": c.get("name", ""),
-                "layer": layer,
-                "ad_type": cr.get("type", ""),
-                "ad_status": cr.get("intendedStatus") or cr.get("status", ""),
-                **metrics,
-            })
-
-
-def write_ads_csv(rows: list[dict], path: str) -> None:
-    fieldnames = [
-        "campaign_id", "campaign_name", "layer", "ad_id", "ad_status", "ad_type",
-        "spend", "impressions", "clicks", "social_actions", "video_views",
-        "leads", "landing_page_clicks", "unique_members", "frequency",
-        "engagement_rate", "social_engagement_rate", "ctr", "video_view_rate",
-        "lpv_rate", "cpm", "cpc", "cpl",
-    ]
-    with open(path, "w", newline="") as f:
-        writer = csv.DictWriter(f, fieldnames=fieldnames)
-        writer.writeheader()
-        for r in rows:
-            for a in r.get("ads", []):
-                writer.writerow({
-                    "campaign_id": r["id"],
-                    "campaign_name": r["name"],
-                    "layer": r["layer"],
-                    "ad_id": a["id"],
-                    "ad_status": a.get("status"),
-                    "ad_type": a.get("type"),
-                    **a["metrics"],
-                })
-
-
-def main() -> None:
-    account_urn = os.getenv("LINKEDIN_AD_ACCOUNT_URN")
-    if not account_urn:
-        sys.exit("LINKEDIN_AD_ACCOUNT_URN not set in .env")
-
-    token = get_access_token()
-    print(f"Pulling campaigns for {account_urn}...")
-    campaigns = list_campaigns(token, account_urn)
-    active = [c for c in campaigns if c.get("status") == "ACTIVE"]
-    print(f"  {len(campaigns)} total, {len(active)} active.\n")
-
-    if not active:
-        sys.exit("No active campaigns. Nothing to analyze.")
-
-    campaign_ids = [c["id"] for c in active]
-
-    print(f"Pulling campaign analytics (last {LOOKBACK_DAYS} days)...")
-    analytics = fetch_analytics(token, campaign_ids, pivot="CAMPAIGN")
-    print(f"  Got data for {len(analytics)} campaign(s).")
-
-    print("Pulling creative metadata and per-ad analytics...")
-    creatives_meta = fetch_creatives(token, account_urn, campaign_ids)
-    creative_analytics = fetch_analytics(token, campaign_ids, pivot="CREATIVE")
-    print(f"  Got {len(creatives_meta)} creative(s), analytics for {len(creative_analytics)}.\n")
-
-    rows: list[dict] = []
-    for c in active:
-        layer, source = parse_layer(c.get("name", ""), c.get("objectiveType", ""))
-        stats = analytics.get(c["id"], {})
-        campaign_urn = f"urn:li:sponsoredCampaign:{c['id']}"
-        ads = []
-        for cr_id, cr in creatives_meta.items():
-            if cr.get("campaign") == campaign_urn:
-                ad_stats = creative_analytics.get(cr_id, {})
-                ads.append({
-                    "id": cr_id,
-                    "status": cr.get("intendedStatus") or cr.get("status"),
-                    "type": cr.get("type"),
-                    "metrics": compute_metrics(ad_stats),
-                })
-        rows.append({
-            "id": c["id"],
-            "name": c.get("name", ""),
-            "status": c.get("status"),
-            "objective": c.get("objectiveType", ""),
-            "layer": layer,
-            "layer_source": source,
-            "metrics": compute_metrics(stats),
-            "ads": ads,
-        })
-
-    for layer in ["Cold", "Warm", "Unlabeled"]:
-        layer_rows = [r for r in rows if r["layer"] == layer]
-        if layer_rows or layer != "Unlabeled":
-            print_layer(layer, layer_rows)
-
-    csv_path = "analytics_latest.csv"
-    write_csv(rows, csv_path)
-    print(f"\n📄 Saved campaign-level (L{LOOKBACK_DAYS}d snapshot): {csv_path}")
-
-    ads_csv_path = "analytics_ads.csv"
-    write_ads_csv(rows, ads_csv_path)
-    print(f"📄 Saved ad-level (L{LOOKBACK_DAYS}d snapshot):       {ads_csv_path}")
-
-    print(f"\nPulling DAILY analytics (last {DAILY_LOOKBACK_DAYS} days)...")
-    campaigns_by_id = {c["id"]: c for c in active}
-    daily_campaigns = fetch_analytics_daily(token, campaign_ids, pivot="CAMPAIGN")
-    daily_ads = fetch_analytics_daily(token, campaign_ids, pivot="CREATIVE")
-    print(f"  {len(daily_campaigns)} campaign-day rows, {len(daily_ads)} ad-day rows.")
-
-    daily_camp_path = "analytics_campaigns_daily.csv"
-    write_daily_campaigns_csv(daily_campaigns, campaigns_by_id, daily_camp_path)
-    print(f"📄 Saved daily campaigns: {daily_camp_path}")
-
-    daily_ads_path = "analytics_ads_daily.csv"
-    write_daily_ads_csv(daily_ads, creatives_meta, campaigns_by_id, daily_ads_path)
-    print(f"📄 Saved daily ads:       {daily_ads_path}")
-
-    print(f"\nPulling company-level reach (last {LOOKBACK_DAYS} days)...")
-    companies = fetch_company_reach(token, campaign_ids)
-    total_impressions_with_company = sum((r.get("impressions") or 0) for r in companies)
-    total_unique_members_company = sum((r.get("approximateUniqueImpressions") or 0) for r in companies)
-    print(f"  Reached {len(companies)} unique companies")
-    print(f"  Approx unique members reached: {total_unique_members_company:,}")
-    if total_unique_members_company:
-        print(f"  Frequency (impressions / members): {total_impressions_with_company / total_unique_members_company:.2f}x")
-
-    if companies:
-        print("\n  Top 10 companies by impressions:")
-        top = sorted(companies, key=lambda r: -(r.get("impressions") or 0))[:10]
-        for c in top:
-            urn = c["company_urn"]
-            print(f"    {urn}  imp {c.get('impressions', 0):,}  clicks {c.get('clicks', 0):,}")
-
-    companies_path = "analytics_companies.csv"
-    write_companies_csv(companies, companies_path)
-    print(f"\n📄 Saved companies:       {companies_path}")
-
-    try:
-        from sheet_writer import push_all
-        push_all()
-    except Exception as e:
-        print(f"⚠ Sheet upload failed: {e}")
-
-
-if __name__ == "__main__":
-    main()
+                company_id = urn.split(":")[
