@@ -33,4 +33,5 @@ jobs:
           LINKEDIN_AD_ACCOUNT_URN: ${{ secrets.LINKEDIN_AD_ACCOUNT_URN }}
           GOOGLE_SHEET_ID: ${{ secrets.GOOGLE_SHEET_ID }}
           GOOGLE_SERVICE_ACCOUNT_JSON_CONTENT: ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON_CONTENT }}
+          GOOGLE_DRIVE_EXPORT_FOLDER_ID: ${{ secrets.GOOGLE_DRIVE_EXPORT_FOLDER_ID }}
         run: python pull_analytics.py
