@@ -292,7 +292,9 @@ def print_layer(layer: str, rows: list[dict]) -> None:
 
     for r in rows:
         m = r["metrics"]
-        print(f"  ▸ {r['name']}  [{r['layer_source']}]")
+        status = r.get("status", "")
+        status_tag = f"  ⚠ {status}" if status and status != "ACTIVE" else ""
+        print(f"  ▸ {r['name']}  [{r['layer_source']}]{status_tag}")
         print(f"    spend {fmt_money(m['spend'])}  |  impressions {m['impressions']:,}  |  clicks {m['clicks']:,}")
         if m["unique_members"]:
             freq = m["frequency"]
@@ -498,17 +500,31 @@ def main() -> None:
     token = get_access_token()
     print(f"Pulling campaigns for {account_urn}...")
     campaigns = list_campaigns(token, account_urn)
-    active = [c for c in campaigns if c.get("status") == "ACTIVE"]
-    print(f"  {len(campaigns)} total, {len(active)} active.\n")
 
-    if not active:
-        sys.exit("No active campaigns. Nothing to analyze.")
+    # Track ACTIVE + recently-PAUSED + recently-COMPLETED campaigns. This keeps
+    # campaigns that ended in the L30 window visible so you can decide whether
+    # to extend them.
+    TRACKED_STATUSES = {"ACTIVE", "PAUSED", "COMPLETED"}
+    candidates = [c for c in campaigns if c.get("status") in TRACKED_STATUSES]
+    print(f"  {len(campaigns)} total, {len(candidates)} candidates (ACTIVE/PAUSED/COMPLETED).\n")
 
-    campaign_ids = [c["id"] for c in active]
+    if not candidates:
+        sys.exit("No tracked campaigns. Nothing to analyze.")
+
+    candidate_ids = [c["id"] for c in candidates]
 
     print(f"Pulling campaign analytics (last {LOOKBACK_DAYS} days)...")
-    analytics = fetch_analytics(token, campaign_ids, pivot="CAMPAIGN")
+    analytics = fetch_analytics(token, candidate_ids, pivot="CAMPAIGN")
     print(f"  Got data for {len(analytics)} campaign(s).")
+
+    # Keep ACTIVE always; PAUSED/COMPLETED only if they had delivery in L30
+    active = [
+        c for c in candidates
+        if c.get("status") == "ACTIVE"
+        or (analytics.get(c["id"], {}).get("impressions") or 0) > 0
+    ]
+    print(f"  Tracking {len(active)} campaigns (active + recent delivery).")
+    campaign_ids = [c["id"] for c in active]
 
     print("Pulling creative metadata and per-ad analytics...")
     creatives_meta = fetch_creatives(token, account_urn, campaign_ids)
@@ -584,8 +600,6 @@ def main() -> None:
             urn = c["company_urn"]
             print(f"    {urn}  imp {c.get('impressions', 0):,}  clicks {c.get('clicks', 0):,}")
 
-    # Compute true total L30 spend from campaign aggregates (LinkedIn doesn't
-    # return per-company spend reliably in MEMBER_COMPANY pivot)
     total_spend_l30 = sum(r["metrics"]["spend"] for r in rows)
 
     companies_path = "analytics_companies.csv"
