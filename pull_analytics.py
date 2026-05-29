@@ -616,3 +616,10 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+
+    # Export the same CSVs to a fixed Google Drive folder (no-op if not configured)
+    try:
+        from drive_writer import export_all
+        export_all()
+    except Exception as e:
+        print(f"⚠ Drive export failed: {e}")
